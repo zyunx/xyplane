@@ -1,0 +1,367 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+</head>
+<body style="position:relative">
+	<canvas id="canvas" width="800" height="600">
+		Your browser does not support &lt;canvas&gt; :-(
+	</canvas>
+	<div style="position:fixed;top:0;left:850px;right:0;">
+	<h1>操作说明</h1>
+	<br>
+		鼠标操作
+		<ul>
+			<li>拖动坐标轴: 显示坐标轴不同区间</li>
+			<li>在坐标轴内滚动滑轮: 缩放坐标轴</li>
+		</ul>
+	键盘操作
+		<ul>
+			<li>D: 打开数据输入界面</li>
+			<li>Enter: 在坐标抽上展示数据</li>
+			<li>Esc: 隐藏数据属于界面</li>
+		</ul>
+	</div>
+	<div id="point-dialog" style="display:none;position:fixed;left:0;top:0;width:100%;height:100%">
+		<div style="position:relative;left:100px;top:100px;width:250px;padding:20px;background:lightgray">
+			<p>Please input point data:</p>
+			<p>
+			x: <input type="text" name="x"/><br/><br/>
+			y: <input type="text" name="y"/>
+			</p>
+		</div>
+	</div>
+</body>
+<script>
+window.addEventListener('load', function() {
+	function XYPlaneModel() {
+		this.views = [];
+		this.points = [];
+
+		this.addPoint = function (x, y) {
+			var views = this.views;
+
+			this.points.push({x: x, y: y});
+
+			for (var i = 0; i < views.length; i++) {
+				views[i].update();
+				//console.log('update view ' + i);
+			}
+		}
+	}
+
+	function XYPlaneWindowCanvasView(canvas, model) {
+		this.canvas = canvas;
+		this.model = model;
+		this.error = '';
+
+		this.axisStyle = 'rgb(0, 0, 0)';
+		this.gridStyle = 'rgba(0, 0, 0, 0.1)';
+
+		/* draw parameter */
+		this.width = this.canvas.width;
+		this.height = this.canvas.height;
+		/* 原点*/
+		this.origX = this.width / 2;
+		this.origY = this.height / 2;
+
+		/* 刻度 1, 5, 10 */
+		this.scale = 5;
+		/* 一个刻度对应的像素值 */
+		this.scaleLength = 50;
+
+		if (!this.canvas.getContext) {
+			this.error = 'get canvas context error';
+			console.log(this.error);
+			return;
+		}
+		this._drawCtx = this.canvas.getContext("2d");
+		
+		this._drawAxes = function (origX, origY) {
+			var ctx = this._drawCtx,
+
+				width = this.width,
+				height = this.height,
+
+				scale = this.scale,
+				scaleLength = this.scaleLength,
+				/* 刻度记号*/
+				scaleMark;
+
+			/* Y axis */
+			ctx.clearRect(0, 0, width, height);
+			ctx.strokeStyle = this.axisStyle;
+			ctx.beginPath();
+			ctx.moveTo(origX, 0);
+			ctx.lineTo(origX, height);
+			ctx.stroke();
+
+			/* X axis */
+			ctx.beginPath();
+			ctx.moveTo(0, origY);
+			ctx.lineTo(width, origY);
+			ctx.stroke();
+
+			/* 0 mark */
+			ctx.fillText(0, origX, origY);
+			/* X, Y marks */			
+			scaleMark = scale;
+			for (var x = origX + scaleLength;
+				     x < width; 
+					 x += scaleLength) {
+				
+				ctx.fillText(scaleMark, x, origY);
+				scaleMark += scale;
+			}
+
+			scaleMark = -scale;
+			for (var x = origX - scaleLength;
+					 x > 0;
+					 x -= scaleLength) {
+				
+				ctx.fillText(scaleMark, x, origY);
+				scaleMark -= scale;
+			}
+
+			scaleMark = scale;
+			for (var y = origY - scaleLength;
+				     y > 0 ; 
+					 y -= scaleLength) {
+				
+				ctx.fillText(scaleMark, origX, y);
+				scaleMark += scale;
+			}
+
+			scaleMark = -scale;
+			for (var y = origY + scaleLength;
+					 y < height;
+					 y += scaleLength) {
+				
+				ctx.fillText(scaleMark, origX, y);
+				scaleMark -= scale;
+			}
+		}
+
+		this._drawGridLine = function (offset, vertical) {
+			var ctx = this._drawCtx,
+				gridStyle = this.gridStyle,
+				width = this.width, height = this.height;
+
+			ctx.strokeStyle = gridStyle;
+			ctx.beginPath();
+			if (vertical) {
+				ctx.moveTo(offset, 0);
+				ctx.lineTo(offset, height);
+
+			} else {
+				ctx.moveTo(0, offset);
+				ctx.lineTo(width, offset);
+			}
+			ctx.stroke();
+		}
+
+		this._drawGrid = function() {
+			var origX = this.origX,
+				origY = this.origY,
+				width = this.width,
+				height = this.height,
+				sl = this.scaleLength;
+
+			for (var x = origX + sl; x < width; x += sl) {
+				this._drawGridLine(x, true);
+			}
+			for (var x = origX - sl; x > 0; x -= sl) {
+				this._drawGridLine(x, true);
+			}
+			for (var y = origY + sl; y < height; y += sl) {
+				this._drawGridLine(y, false);
+			}
+			for (var y = origY - sl; y > 0; y -= sl) {
+				this._drawGridLine(y, false);
+			}
+		}
+
+		this._drawPoints = function() {
+			var points = this.model.points,
+				origX = this.origX,
+				origY = this.origY,
+				scale = this.scale,
+				sl = this.scaleLength,
+				ctx = this._drawCtx;
+
+			for (var i = 0; i < points.length; i++) {
+				var d = points[i];
+				var x = origX + d.x * sl / scale;
+				var y = origY - d.y * sl / scale;
+				ctx.rect(x - 2, y - 2, 4, 4);
+				ctx.fill();
+			}
+		}
+
+		this.updateAll = function () {
+			this._drawAxes(this.origX, this.origY);
+			this._drawGrid();
+			this._drawPoints();
+		}
+
+		this.update = function() {
+			this._drawPoints();
+		}
+
+		this._makeMovable = function () {
+			var obj = this,
+				canvas = this.canvas,
+				origX,
+				origY,
+				movingX,
+				movingY,
+				prevMouseX,
+				prevMouseY;
+
+			function canvasMouseDown(event) {
+				movingX = obj.origX;
+				movingY = obj.origY;
+				prevMouseX = event.clientX;
+				prevMouseY = event.clientY;
+
+				canvas.addEventListener('mousemove', 
+						canvasMouseMoveWhileDown);
+				canvas.addEventListener('mouseup',
+						canvasMouseUp);
+
+			}
+			function canvasMouseUp() {
+				canvas.removeEventListener('mousemove',
+						canvasMouseMoveWhileDown);
+				obj.updateAll();
+			}
+			function canvasMouseMoveWhileDown(event) {
+				movingX = movingX + event.clientX - prevMouseX;
+				movingY = movingY + event.clientY - prevMouseY;
+				obj.origX = movingX;
+				obj.origY = movingY;
+				obj._drawAxes(movingX, movingY);
+				obj._drawPoints();
+				prevMouseX = event.clientX;
+				prevMouseY = event.clientY;
+			}
+
+			canvas.addEventListener('mousedown', canvasMouseDown);
+		}
+
+
+		this._makeZoomable = function() {
+			var obj = this,
+				canvas = this.canvas;
+
+			canvas.addEventListener('wheel', function(event) {
+				event.stopPropagation();
+				event.preventDefault();
+
+				/* scale sequence: ... 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50 ...*/
+				function nextScale(scale, zoomIn) {
+					var log10 = 0;
+					var next;
+
+					while (scale / 10 >= 1) {
+						scale /= 10;
+						log10++;
+					}
+					while (scale * 10 < 10) {
+						scale *= 10;
+						log10--;
+					}
+
+					if (scale <= 1.5) {
+						next = (zoomIn ? 0.5 : 2);
+					} else if (scale <= 3) {
+						next = (zoomIn ? 1 : 5);
+					} else {
+						next = (zoomIn ? 2 : 10);
+					}
+
+					for (var i = 0; i < log10; i++)
+						next *= 10;
+					for (var i = log10; i < 0; i++)
+						next /= 10;
+
+					return next;
+				}
+
+				obj.scale = nextScale(obj.scale, event.deltaY < 0);
+				obj.updateAll();
+			});
+		}
+
+		this.model.views.push(this);
+		this._makeMovable();
+		this._makeZoomable();
+		this.updateAll();
+		console.log('ok');
+	}
+
+
+	var canvas = document.getElementById('canvas');
+	var model = new XYPlaneModel();
+	new XYPlaneWindowCanvasView(canvas, model);
+	model.addPoint(1, 1);
+
+
+	function PointDialog (elem) {
+		this.elem = elem;
+		this.point = undefined;
+		this._inputX = elem.querySelector('[name=x]');
+		this._inputY = elem.querySelector('[name=y]');	
+		
+		this.show = function() {
+			this.elem.style.display = 'block';
+			this.clear();
+		}
+		this.hide = function() {
+			this.elem.style.display = 'none';
+		}
+		this.isHide = function() {
+			return this.elem.style.display == 'none';
+		}
+		this.clear = function() {
+			this._inputX.value = '';
+			this._inputY.value = '';
+			this._inputX.focus();
+		}
+		this.getPoint = function() {
+			return {x: this._inputX.value, y: this._inputY.value};
+			
+		}
+		
+	}
+
+	var pointDialog = new PointDialog(document.getElementById('point-dialog'));
+	document.addEventListener('keydown', function(event) {
+		//console.log(event.key);
+		if (event.key == 'd' && pointDialog.isHide()) {
+			event.preventDefault();
+			pointDialog.show();
+		}
+		if (event.key == 'Escape') {
+			pointDialog.hide();
+		}
+
+		if (event.key == 'Enter') {
+			if (!pointDialog.isHide()) {
+				var p = pointDialog.getPoint();
+				if (!p.x) {
+					alert('please input correct x');
+					return;
+				}
+				if (!p.y) {
+					alert('please input correct y');
+					return;
+				}
+				model.addPoint(p.x, p.y);
+				pointDialog.clear();
+			}
+		}
+	});
+});
+</script>
+</html>
